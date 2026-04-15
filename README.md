@@ -93,6 +93,7 @@ The 15 flagged records are not pipeline failures they represent programs with ge
 
 ## Repo Structure
 
+```
 ├── Phase 1/
 │   ├── maryland_pipeline_azure_v1.0.ipynb    Azure-only approach
 │   └── maryland_pipeline_bs4_v1.0.ipynb      BeautifulSoup-only approach
@@ -102,10 +103,13 @@ The 15 flagged records are not pipeline failures they represent programs with ge
 │   ├── maryland_pipeline_claude.ipynb         Production pipeline (Claude)
 │   └── maryland_pipeline_openai.ipynb         Production pipeline (OpenAI)
 ├── database/
-│   ├── schema.sql         8-table normalized schema
-│   └── requirements.txt   Dependencies
-├── .env.example           Credential template
+│   ├── schema.sql          8-table normalized schema
+│   ├── load.py             JSON to PostgreSQL loader
+│   ├── main.py             FastAPI application
+│   └── requirements.txt    Dependencies
+├── .env.example            Credential template
 └── .gitignore
+```
 
 ---
 
@@ -116,28 +120,34 @@ The 15 flagged records are not pipeline failures they represent programs with ge
 git clone https://github.com/A-Upshaw/ai-grant-discovery-pipeline.git
 cd ai-grant-discovery-pipeline
 pip install -r database/requirements.txt
+```
 
 **2. Configure environment**
 ```bash
 cp .env.example .env
 # Fill in your API keys and database credentials
+```
 
 **3. Set up the database**
 ```bash
 psql -U postgres -c "CREATE DATABASE funding_opportunities;"
 psql -U postgres -d funding_opportunities -f database/schema.sql
+```
 
 **4. Run the pipeline**
 Open `Phase 3 - Final/maryland_pipeline_claude.ipynb` or `maryland_pipeline_openai.ipynb` in VS Code or Jupyter and run all cells.
 
+**5. Load results into PostgreSQL**
 ```bash
 python database/load.py
+```
 
 **6. Start the API**
 ```bash
 cd database
 uvicorn main:app --reload
 # Interactive docs at http://localhost:8000/docs
+```
 
 ---
 
