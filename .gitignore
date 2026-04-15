@@ -1,0 +1,21 @@
+# Environment and credentials
+.env
+*.env
+
+# Pipeline outputs — don't publish raw data
+*.json
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

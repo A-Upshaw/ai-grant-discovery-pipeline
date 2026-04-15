@@ -1,0 +1,38 @@
+# Render deployment config
+# Connect your GitHub repo at render.com → New → Web Service
+# Render reads this file and configures everything automatically
+
+services:
+  - type: web
+    name: maryland-funding-api
+    runtime: python
+    rootDir: Maryland/database
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: API_KEY
+        sync: false          # set this manually in Render dashboard — never commit the real value
+      - key: PG_HOST
+        fromDatabase:
+          name: maryland-funding-db
+          property: host
+      - key: PG_PORT
+        fromDatabase:
+          name: maryland-funding-db
+          property: port
+      - key: PG_DB
+        fromDatabase:
+          name: maryland-funding-db
+          property: database
+      - key: PG_USER
+        fromDatabase:
+          name: maryland-funding-db
+          property: user
+      - key: PG_PASSWORD
+        fromDatabase:
+          name: maryland-funding-db
+          property: password
+
+databases:
+  - name: maryland-funding-db
+    plan: free
