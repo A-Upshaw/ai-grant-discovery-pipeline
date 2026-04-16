@@ -107,9 +107,13 @@ def fetch_award_amounts(cur, opportunity_id: int) -> list:
 
 
 def build_where(filters: dict) -> tuple:
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     Build a parameterized WHERE clause from a dict of {column: value}.
     Returns (where_string, params_list).
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     conditions = []
     params     = []
@@ -139,6 +143,7 @@ def list_programs(
     state:            str  = Query(None, description="Filter by state (default: Maryland)"),
     rolling:          str  = Query(None, description="Filter by rolling deadline: Yes or No"),
     needs_review:     bool = Query(None, description="true = flagged records only | false = clean only"),
+    active_only:      bool = Query(None, description="true = only programs with future or rolling deadlines"),
     limit:            int  = Query(20, ge=1, le=100, description="Records per page (max 100)"),
     offset:           int  = Query(0,  ge=0,         description="Pagination offset"),
     _auth=Depends(verify_api_key),
@@ -146,6 +151,8 @@ def list_programs(
     """
     Returns all programs with lightweight fields for browsing.
     Use /programs/{id} for full detail including child table data.
+    Pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     conditions = []
     params     = []
@@ -162,6 +169,12 @@ def list_programs(
     if needs_review is not None:
         conditions.append("needs_review = %s")
         params.append(needs_review)
+    if active_only:
+        conditions.append(
+            "(deadline = 'Rolling'"
+            " OR deadline = 'Not specified'"
+            " OR (deadline ~ '^\\d{2}-\\d{2}-\\d{4}$' AND TO_DATE(deadline, 'MM-DD-YYYY') >= CURRENT_DATE))"
+        )
 
     where       = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -197,9 +210,13 @@ def non_dilutive_programs(
     offset: int = Query(0,  ge=0),
     _auth=Depends(verify_api_key),
 ):
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     Returns programs with no fees, no equity, and no SAFE notes —
     verified non-dilutive opportunities only.
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     with get_db() as cur:
         cur.execute("""
@@ -226,9 +243,13 @@ def non_dilutive_programs(
 
 @app.get("/programs/{program_id}", tags=["Programs"])
 def get_program(program_id: int, _auth=Depends(verify_api_key)):
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     Returns one program's full record including all child table data:
     award_amounts, tags, eligibility, areas_of_focus, sdg_alignments.
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     with get_db() as cur:
         cur.execute("SELECT * FROM opportunities WHERE id = %s", (program_id,))
@@ -250,9 +271,13 @@ def get_program(program_id: int, _auth=Depends(verify_api_key)):
 
 @app.get("/summary", tags=["Analytics"])
 def summary(_auth=Depends(verify_api_key)):
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     Returns aggregate counts useful for dashboards and reporting.
     Includes totals by opportunity type, state, and rolling status.
+    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
+    Rolling and unspecified deadlines are always included.
     """
     with get_db() as cur:
         cur.execute("SELECT COUNT(*) AS total FROM opportunities")
