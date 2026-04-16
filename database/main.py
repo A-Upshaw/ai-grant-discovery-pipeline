@@ -3,7 +3,7 @@ main.py — INFO 588 Capstone
 FastAPI layer on top of the funding_opportunities PostgreSQL database.
 
 Pipeline position:
-    Scraper → JSON → load.py → PostgreSQL → main.py → Sponsor's team
+    Scraper -> JSON -> load.py -> PostgreSQL -> main.py -> Sponsor's team
 
 Usage:
     uvicorn main:app --reload
@@ -24,7 +24,7 @@ Auth:
 """
 
 from contextlib import contextmanager
-
+from typing import Optional
 
 import os
 import psycopg2
@@ -32,9 +32,6 @@ import psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-
-# ── Config ────────────────────────────────────────────────────────────────────
-
 
 # Load .env from same directory as this file (or system environment variables)
 load_dotenv()
@@ -49,35 +46,30 @@ DB_CONFIG = {
 
 API_KEY = os.getenv("API_KEY", "maryland-funding-api-2026")
 
-# ── App ───────────────────────────────────────────────────────────────────────
-
 app = FastAPI(
     title="Maryland Funding Opportunities API",
     description=(
-        "Read access to Maryland state funding programs scraped and structured "
-        "for the Runwei platform. Requires X-API-Key header on all endpoints."
+        "Read access to Maryland state funding programs. "
+        "Requires X-API-Key header on all endpoints."
     ),
     version="1.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # lock this down to the sponsor's domain in production
+    allow_origins=["*"],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
 
-def verify_api_key(x_api_key: str = Header(..., description="API key provided by the data team")):
+def verify_api_key(x_api_key: str = Header(..., description="API key")):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-# ── DB connection ─────────────────────────────────────────────────────────────
 
 @contextmanager
 def get_db():
-    """Open a connection, yield a RealDictCursor, close on exit."""
     conn = psycopg2.connect(**DB_CONFIG)
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -86,10 +78,8 @@ def get_db():
         cur.close()
         conn.close()
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def fetch_children(cur, table: str, column: str, opportunity_id: int) -> list:
-    """Fetch a flat list of values from a child table for one opportunity."""
     cur.execute(
         f"SELECT {column} FROM {table} WHERE opportunity_id = %s ORDER BY id",
         (opportunity_id,)
@@ -98,33 +88,12 @@ def fetch_children(cur, table: str, column: str, opportunity_id: int) -> list:
 
 
 def fetch_award_amounts(cur, opportunity_id: int) -> list:
-    """Fetch award_amounts as a list of {amount, context} dicts."""
     cur.execute(
         "SELECT amount, context FROM award_amounts WHERE opportunity_id = %s ORDER BY id",
         (opportunity_id,)
     )
     return [dict(row) for row in cur.fetchall()]
 
-
-def build_where(filters: dict) -> tuple:
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
-    """
-    Build a parameterized WHERE clause from a dict of {column: value}.
-    Returns (where_string, params_list).
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
-    """
-    conditions = []
-    params     = []
-    for col, val in filters.items():
-        if val is not None:
-            conditions.append(f"{col} = %s")
-            params.append(val)
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    return where, params
-
-# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/", tags=["Health"])
 def health_check():
@@ -139,19 +108,20 @@ def health_check():
 
 @app.get("/programs", tags=["Programs"])
 def list_programs(
-    opportunity_type: str  = Query(None, description="Filter by type: Grant, Loan, Tax Credit, etc."),
-    state:            str  = Query(None, description="Filter by state (default: Maryland)"),
-    rolling:          str  = Query(None, description="Filter by rolling deadline: Yes or No"),
-    needs_review:     bool = Query(None, description="true = flagged records only | false = clean only"),
-    active_only:      bool = Query(None, description="true = only programs with future or rolling deadlines"),
-    limit:            int  = Query(20, ge=1, le=100, description="Records per page (max 100)"),
-    offset:           int  = Query(0,  ge=0,         description="Pagination offset"),
+    opportunity_type: str           = Query(None, description="Filter by type: Grant, Loan, Tax Credit, etc."),
+    state:            str           = Query(None, description="Filter by state"),
+    rolling:          str           = Query(None, description="Filter by rolling deadline: Yes or No"),
+    needs_review:     Optional[bool] = Query(None, description="true = flagged only | false = clean only"),
+    active_only:      Optional[bool] = Query(None, description="true = exclude programs with past deadlines"),
+    limit:            int           = Query(20, ge=1, le=100, description="Records per page (max 100)"),
+    offset:           int           = Query(0,  ge=0,         description="Pagination offset"),
     _auth=Depends(verify_api_key),
 ):
     """
     Returns all programs with lightweight fields for browsing.
     Use /programs/{id} for full detail including child table data.
-    Pass ?active_only=true to exclude programs with past deadlines.
+
+    active_only=true: excludes programs whose deadline has passed.
     Rolling and unspecified deadlines are always included.
     """
     conditions = []
@@ -173,10 +143,11 @@ def list_programs(
         conditions.append(
             "(deadline = 'Rolling'"
             " OR deadline = 'Not specified'"
-            " OR (deadline ~ '^\\d{2}-\\d{2}-\\d{4}$' AND TO_DATE(deadline, 'MM-DD-YYYY') >= CURRENT_DATE))"
+            " OR (deadline ~ '^\\d{2}-\\d{2}-\\d{4}$'"
+            "     AND TO_DATE(deadline, 'MM-DD-YYYY') >= CURRENT_DATE))"
         )
 
-    where       = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
     list_params  = params + [limit, offset]
 
@@ -210,13 +181,8 @@ def non_dilutive_programs(
     offset: int = Query(0,  ge=0),
     _auth=Depends(verify_api_key),
 ):
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
     """
-    Returns programs with no fees, no equity, and no SAFE notes —
-    verified non-dilutive opportunities only.
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
+    Returns programs with no fees, no equity, and no SAFE notes.
     """
     with get_db() as cur:
         cur.execute("""
@@ -243,13 +209,9 @@ def non_dilutive_programs(
 
 @app.get("/programs/{program_id}", tags=["Programs"])
 def get_program(program_id: int, _auth=Depends(verify_api_key)):
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
     """
     Returns one program's full record including all child table data:
     award_amounts, tags, eligibility, areas_of_focus, sdg_alignments.
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
     """
     with get_db() as cur:
         cur.execute("SELECT * FROM opportunities WHERE id = %s", (program_id,))
@@ -271,13 +233,8 @@ def get_program(program_id: int, _auth=Depends(verify_api_key)):
 
 @app.get("/summary", tags=["Analytics"])
 def summary(_auth=Depends(verify_api_key)):
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
     """
     Returns aggregate counts useful for dashboards and reporting.
-    Includes totals by opportunity type, state, and rolling status.
-    Active-only filter: pass ?active_only=true to exclude programs with past deadlines.
-    Rolling and unspecified deadlines are always included.
     """
     with get_db() as cur:
         cur.execute("SELECT COUNT(*) AS total FROM opportunities")
@@ -324,11 +281,11 @@ def summary(_auth=Depends(verify_api_key)):
         )
 
     return {
-        "total":             total,
-        "clean":             total - flagged,
-        "flagged":           flagged,
-        "non_dilutive":      non_dilutive_count,
-        "by_type":           by_type,
-        "by_state":          by_state,
-        "by_rolling":        by_rolling,
+        "total":        total,
+        "clean":        total - flagged,
+        "flagged":      flagged,
+        "non_dilutive": non_dilutive_count,
+        "by_type":      by_type,
+        "by_state":     by_state,
+        "by_rolling":   by_rolling,
     }
