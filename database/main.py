@@ -15,6 +15,7 @@ Endpoints:
     GET /                        health check
     GET /programs                all programs (paginated, filterable)
     GET /programs/non-dilutive   no fees, no equity, no SAFE notes
+    GET /programs/export          all programs with full detail (bulk export)
     GET /programs/{id}           single program + all child table data
     GET /summary                 counts by type, state, flagged status
 
@@ -47,9 +48,9 @@ DB_CONFIG = {
 API_KEY = os.getenv("API_KEY", "maryland-funding-api-2026")
 
 app = FastAPI(
-    title="Maryland Funding Opportunities API",
+    title="State Funding Opportunities API",
     description=(
-        "Read access to Maryland state funding programs. "
+        "Read access to state-level funding programs for small businesses. "
         "Requires X-API-Key header on all endpoints."
     ),
     version="1.0.0",
@@ -100,7 +101,7 @@ def health_check():
     """Confirms the API is running. No auth required."""
     return {
         "status":  "ok",
-        "api":     "Maryland Funding Opportunities",
+        "api":     "State Funding Opportunities",
         "version": "1.0.0",
         "docs":    "/docs",
     }
@@ -206,6 +207,35 @@ def non_dilutive_programs(
 
     return {"total": total, "limit": limit, "offset": offset, "results": rows}
 
+
+
+@app.get("/programs/export", tags=["Programs"])
+def export_all_programs(_auth=Depends(verify_api_key)):
+    """
+    Returns all programs as a single JSON array with full detail —
+    including award_amounts, tags, eligibility, areas_of_focus, sdg_alignments.
+
+    Use this endpoint to bulk-download all scraped data for import into
+    another database or system. No pagination — returns everything at once.
+    """
+    with get_db() as cur:
+        cur.execute("SELECT * FROM opportunities ORDER BY title")
+        rows = cur.fetchall()
+
+        results = []
+        for row in rows:
+            program = dict(row)
+            oid     = program["id"]
+
+            program["award_amounts"]  = fetch_award_amounts(cur, oid)
+            program["tags"]           = fetch_children(cur, "tags",                 "tag",       oid)
+            program["eligibility"]    = fetch_children(cur, "eligibility_criteria", "criterion", oid)
+            program["areas_of_focus"] = fetch_children(cur, "areas_of_focus",       "area",      oid)
+            program["sdg_alignments"] = fetch_children(cur, "sdg_alignments",       "sdg_tag",   oid)
+
+            results.append(program)
+
+    return {"total": len(results), "programs": results}
 
 @app.get("/programs/{program_id}", tags=["Programs"])
 def get_program(program_id: int, _auth=Depends(verify_api_key)):
