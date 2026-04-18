@@ -25,9 +25,9 @@ The project progressed through three phases:
 
 ## Key Design Decisions
 
-**Knack API discovery**: Maryland's `businessexpress.maryland.gov` runs on a Knack database backend, found via Chrome DevTools network inspection. This eliminated HTML scraping for Maryland and enables clean pagination across all pages.
+**Structured backend discovery**: each state government site is analyzed via Chrome DevTools to identify its data source. When a structured API exists (e.g., Knack, IntelliGrants), we hit the API directly for clean JSON — no HTML scraping needed. For HTML-based sites, BeautifulSoup extracts text and a detail page is fetched per program.
 
-**Dollar-line grounding**: before sending a page to the AI, every line containing `$` is extracted by BeautifulSoup and passed as a numbered, verified list. The model is explicitly instructed to use only those lines for award values. This was the central hallucination prevention mechanism: zero fabricated dollar amounts in the validated run.
+**Hallucination prevention**: for HTML-based sources, every line containing `$` is extracted by BeautifulSoup and passed as a numbered, verified list before the AI call. The model is instructed to use only those lines for award values — zero fabricated dollar amounts in validated runs. For API-based sources (like Ohio), amounts are already structured fields and are passed directly.
 
 **Dual AI versions**: the pipeline ships in two versions: one using the **Anthropic Claude API** (`claude-3-haiku`) and one using the **OpenAI API** (`gpt-4o-mini`). Same prompts, same output schema, same logging: swappable depending on the deployment environment.
 
@@ -95,13 +95,13 @@ The 15 flagged records are not pipeline failures they represent programs with ge
 
 ```
 ├── Phase 1/
-│   ├── maryland_pipeline_azure_v1.0.ipynb    Azure-only approach
-│   └── maryland_pipeline_bs4_v1.0.ipynb      BeautifulSoup-only approach
+│   ├── funding_pipeline_azure_v1.0.ipynb    Azure-only approach
+│   └── funding_pipeline_bs4_v1.0.ipynb      BeautifulSoup-only approach
 ├── Phase 2/
-│   └── maryland_pipeline_v2.0.ipynb          Combined: BS4 ground truth + Azure extraction
+│   └── funding_pipeline_v2.0.ipynb          Combined: BS4 ground truth + Azure extraction
 ├── Phase 3 - Final/
-│   ├── maryland_pipeline_claude.ipynb         Production pipeline (Claude)
-│   └── maryland_pipeline_openai.ipynb         Production pipeline (OpenAI)
+│   ├── funding_pipeline_claude.ipynb         Production pipeline (Claude)
+│   └── funding_pipeline_openai.ipynb         Production pipeline (OpenAI)
 ├── database/
 │   ├── schema.sql          8-table normalized schema
 │   ├── load.py             JSON to PostgreSQL loader
@@ -135,7 +135,7 @@ psql -U postgres -d funding_opportunities -f database/schema.sql
 ```
 
 **4. Run the pipeline**
-Open `Phase 3 - Final/maryland_pipeline_claude.ipynb` or `maryland_pipeline_openai.ipynb` in VS Code or Jupyter and run all cells.
+Open `Phase 3 - Final/funding_pipeline_claude.ipynb` or `funding_pipeline_openai.ipynb` in VS Code or Jupyter and run all cells.
 
 **5. Load results into PostgreSQL**
 ```bash
